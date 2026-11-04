@@ -1,0 +1,10 @@
+[package]
+name = "black_white_recomp"
+version = "0.1.0"
+edition = "2024"
+description = "Black & White (Lionhead 2001) recompiled to native code with Cranelift"
+license = "MIT"
+
+[dependencies]
+miniz_oxide = "0.9.1"
+md-5 = "0.11.0"
