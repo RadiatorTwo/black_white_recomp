@@ -236,3 +236,43 @@ pub const IMPORTS: &[Import] = &[
     ("mixerSetControlDetails", 3, super::cdaudio::mixer_set_control_details),
     ("mciSendCommandA", 4, super::cdaudio::mci_send_command),
 ];
+
+// ---- waveOut / waveIn: no devices yet (QMixer and binkw32 then play nothing; the game's
+// speech input, wearasr, finds no microphone)
+
+fn no_devices(_: &mut Cpu) -> u32 {
+    0
+}
+fn bad_device(_: &mut Cpu) -> u32 {
+    2 // MMSYSERR_BADDEVICEID
+}
+fn no_driver(_: &mut Cpu) -> u32 {
+    6 // MMSYSERR_NODRIVER
+}
+fn invalid_handle(_: &mut Cpu) -> u32 {
+    5 // MMSYSERR_INVALHANDLE
+}
+
+pub const WAVE_IMPORTS: &[Import] = &[
+    ("waveOutGetNumDevs", 0, no_devices),
+    ("waveOutGetDevCapsA", 3, bad_device),
+    ("waveOutOpen", 6, no_driver),
+    ("waveOutClose", 1, invalid_handle),
+    ("waveOutPrepareHeader", 3, invalid_handle),
+    ("waveOutUnprepareHeader", 3, invalid_handle),
+    ("waveOutWrite", 3, invalid_handle),
+    ("waveOutReset", 1, invalid_handle),
+    ("waveOutPause", 1, invalid_handle),
+    ("waveOutRestart", 1, invalid_handle),
+    ("waveOutGetVolume", 2, invalid_handle),
+    ("waveOutSetVolume", 2, invalid_handle),
+    ("waveInGetNumDevs", 0, no_devices),
+    ("waveInGetDevCapsA", 3, bad_device),
+    ("waveInOpen", 6, no_driver),
+    ("waveInClose", 1, invalid_handle),
+    ("waveInPrepareHeader", 3, invalid_handle),
+    ("waveInUnprepareHeader", 3, invalid_handle),
+    ("waveInAddBuffer", 3, invalid_handle),
+    ("waveInStart", 1, invalid_handle),
+    ("waveInReset", 1, invalid_handle),
+];

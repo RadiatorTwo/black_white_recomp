@@ -784,8 +784,29 @@ fn sleep(c: &mut Cpu) -> u32 {
 
 // ---- files --------------------------------------------------------------------------------------
 
+/// The videos before the main menu (Lionhead logo, pre-intro, intro): skipped unless
+/// `BW_INTRO=1`. The game goes on as if they were missing.
+fn skipped_video(name: &str) -> bool {
+    static SHOW: OnceLock<bool> = OnceLock::new();
+    if *SHOW.get_or_init(|| std::env::var("BW_INTRO").is_ok_and(|v| v == "1")) {
+        return false;
+    }
+    let file = name.rsplit(['\\', '/']).next().unwrap_or(name).to_ascii_lowercase();
+    matches!(file.as_str(), "logo.bik" | "pre_intro.bik" | "intro.bik")
+}
+
+/// `BW_TRACE_FILES=1` (or `BW_TRACE_API`): every file the game opens.
+fn trace_files() -> bool {
+    static T: OnceLock<bool> = OnceLock::new();
+    *T.get_or_init(|| std::env::var_os("BW_TRACE_FILES").is_some()) || super::trace_api()
+}
+
 fn create_file(c: &mut Cpu) -> u32 {
     let (name, access, disp) = (cstr(arg(c, 0)), arg(c, 1), arg(c, 4));
+    if skipped_video(&name) {
+        set_last_error(ERROR_FILE_NOT_FOUND);
+        return INVALID_HANDLE;
+    }
     let path = host_path(&name);
     let write = access & 0x4000_0000 != 0;
     if write && super::on_cd(&name) {
@@ -801,15 +822,33 @@ fn create_file(c: &mut Cpu) -> u32 {
         5 => o.truncate(true),
         _ => &mut o,
     };
+    // Windows creates or empties a file opened only for reading too (OPEN_ALWAYS on
+    // Data\AllAnims.anm); Rust wants write access for that: make it first, then open it
+    if !write && matches!(disp, 1 | 2 | 4 | 5) {
+        let exists = path.exists();
+        let made = match disp {
+            1 if exists => Err(std::io::ErrorKind::AlreadyExists.into()),
+            5 if !exists => Err(std::io::ErrorKind::NotFound.into()),
+            1 | 2 | 5 => std::fs::File::create(&path).map(drop),
+            _ if !exists => std::fs::File::create(&path).map(drop),
+            _ => Ok(()),
+        };
+        if let Err(e) = made {
+            set_last_error(if e.kind() == std::io::ErrorKind::AlreadyExists { 80 } else { ERROR_FILE_NOT_FOUND });
+            return INVALID_HANDLE;
+        }
+        o = std::fs::OpenOptions::new();
+        o.read(true);
+    }
     match o.open(&path) {
         Ok(f) => {
-            if super::trace_api() {
+            if trace_files() {
                 log!("CreateFileA {name} (access {access:#x}, disposition {disp})");
             }
             objects().add(Obj::File(Arc::new(Mutex::new(f))))
         }
         Err(e) => {
-            if super::trace_api() {
+            if trace_files() {
                 log!("CreateFileA {name}: {e}");
             }
             set_last_error(if e.kind() == std::io::ErrorKind::AlreadyExists { 80 } else { ERROR_FILE_NOT_FOUND });
@@ -1709,6 +1748,50 @@ pub const MORE_IMPORTS_2: &[Import] = &[
     ("GetTimeFormatA", 6, get_time_format),
     ("OpenProcess", 3, open_process),
 ];
+
+
+/// OpenFile(name, OFSTRUCT*, style): OF_EXIST (0x4000) only checks; otherwise opens like
+/// CreateFileA (OF_READ 0, OF_WRITE 1, OF_READWRITE 2, OF_CREATE 0x1000). HFILE_ERROR is -1.
+fn open_file(c: &mut Cpu) -> u32 {
+    let (name, of, style) = (cstr(arg(c, 0)), arg(c, 1), arg(c, 2));
+    let path = host_path(&name);
+    let m = mem();
+    if of != 0 {
+        m.slice(of, 136).fill(0);
+        m.wr8(of, 136);
+        put_cstr(of + 8, &name, 128);
+    }
+    if style & 0x4000 != 0 {
+        if path.is_file() {
+            return 1;
+        }
+        if of != 0 {
+            m.wr16(of + 2, ERROR_FILE_NOT_FOUND as u16);
+        }
+        return u32::MAX;
+    }
+    let mut o = std::fs::OpenOptions::new();
+    match style & 3 {
+        1 => o.write(true),
+        2 => o.read(true).write(true),
+        _ => o.read(true),
+    };
+    if style & 0x1000 != 0 {
+        o.write(true).create(true).truncate(true);
+    }
+    match o.open(&path) {
+        Ok(f) => objects().add(Obj::File(Arc::new(Mutex::new(f)))),
+        Err(_) => {
+            if of != 0 {
+                m.wr16(of + 2, ERROR_FILE_NOT_FOUND as u16);
+            }
+            set_last_error(ERROR_FILE_NOT_FOUND);
+            u32::MAX
+        }
+    }
+}
+
+pub const MORE_IMPORTS_3: &[Import] = &[("OpenFile", 3, open_file)];
 
 pub const IMPORTS: &[Import] = &[
     ("FindResourceA", 3, find_resource),

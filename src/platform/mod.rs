@@ -700,14 +700,14 @@ pub fn system_proc(module: u32, name: &str) -> u32 {
 
 fn find_import(dll: &str, name: &str) -> Option<&'static Import> {
     let tables: &[&[Import]] = match dll.to_ascii_uppercase().as_str() {
-        "KERNEL32.DLL" => &[kernel32::IMPORTS, kernel32::MORE_IMPORTS, kernel32::MORE_IMPORTS_2],
+        "KERNEL32.DLL" => &[kernel32::IMPORTS, kernel32::MORE_IMPORTS, kernel32::MORE_IMPORTS_2, kernel32::MORE_IMPORTS_3],
         "USER32.DLL" => &[dialog::IMPORTS, user32::IMPORTS, user32::MORE_IMPORTS, gdi32::USER_IMPORTS],
         "GDI32.DLL" => &[gdi32::IMPORTS],
         "ADVAPI32.DLL" => &[advapi32::IMPORTS],
         "DDRAW.DLL" => &[ddraw::IMPORTS],
         "DSOUND.DLL" => &[dsound::IMPORTS],
-        "WINMM.DLL" => &[dsound::IMPORTS, misc::IMPORTS, winmm::IMPORTS],
-        "OLE32.DLL" => &[misc::IMPORTS],
+        "WINMM.DLL" => &[dsound::IMPORTS, misc::IMPORTS, winmm::IMPORTS, winmm::WAVE_IMPORTS],
+        "OLE32.DLL" => &[misc::IMPORTS, small::OLE32_IMPORTS],
         "DINPUT.DLL" => &[dinput::IMPORTS],
         "LHDIALOGLIB.DLL" => &[lionhead::DIALOG_IMPORTS],
         "DSETUP.DLL" => &[lionhead::DSETUP_IMPORTS],
