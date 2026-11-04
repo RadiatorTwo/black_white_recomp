@@ -16,32 +16,23 @@
   family 6); x87 environment instructions. 92 functions left with unsupported instructions,
   none reachable.
 
+- 2026-11-05: Patch 1.20 applied without its installer (`setup::patch_120`, `mscab.rs`,
+  `rtpatch.rs`); the game reaches the name login.
 - 2026-11-04: Platform layer from rustschweine with general DLL loading; the game runs up
   to its first BeginScene and the audio start (CLAUDE.md, "Platform layer").
 
 ## Current state (2026-11-05): runs to the name login
 
-Patch 1.20 is applied without its installer: `examples/rtpatch.rs` recompiles the patch's own
-`patchw32.dll` and calls `RTPatchApply32NoCall("<old dir>" "<patch file>")` on a copy of the
-disc install (12 files modified, 8 added, 3 deleted). The game folder is now: disc
-(`game_files/bw_v100`) -> 1.20 (`game_files/bw_v120`) -> `InfoScriptPatch2.txt` (plain file in
-the 1.20 cab) -> Patch1.42. Built by hand for now (read-only flags cleared before copying
-1.42 over it). With it the game gets past its loading to the name login.
-
-The 1.20 installer could not be used: it reads GameDir and GameVersion from HKCU and still
-said BW_NOT_INSTALLED (cause unknown, maybe its elevated engine). Registry values changed by
-us for that attempt, under `HKCU\Software\Lionhead Studios Ltd\Black & White`: GameDir set
-to `game_filesw_v100`, GameVersion 142 -> 100; HKLM key with GameDir added by the user.
-
-To do: automate it in `setup.rs` (the patch EXEs are an InstallShield PFTW wrapper around an
-MS-CAB (MSZIP) with an IS6 setup: patchw32.dll, the .rtp, InfoScriptPatch2.txt).
+`examples/install` makes the whole game folder: disc -> patch 1.20 (`setup::patch_120`, its
+own patchw32.dll recompiled) -> patch 1.42. The game loads and shows the name login. The
+registry values changed for the failed 1.20-installer attempt are restored (HKCU GameVersion
+142, GameDir removed); an HKLM GameDir key the user added as admin may remain.
 
 ## Next
 
 1. Keep running the game from the name login on.
-2. Automate patch 1.20 in `setup.rs` (above).
-3. Audio: QMixer and binkw32 find no waveOut device (silent); real output later.
-4. Settings the patch 1.42 Setup.exe writes (resolution, windowed mode).
+2. Audio: QMixer and binkw32 find no waveOut device (silent); real output later.
+3. Settings the patch 1.42 Setup.exe writes (resolution, windowed mode).
 
 ## Later
 

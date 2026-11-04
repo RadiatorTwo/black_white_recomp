@@ -1051,11 +1051,16 @@ fn load_bitmap(c: &mut Cpu) -> u32 {
     0
 }
 
+/// Print what wvsprintfA formats to standard output (the RTPatch child: RTPatch's messages).
+pub static PRINT_FORMATTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// wvsprintfA(buf, format, va_list)
 fn wvsprintf(c: &mut Cpu) -> u32 {
     let (buf, fmt, va) = (arg(c, 0), cstr(arg(c, 1)), arg(c, 2));
     let s = super::printf(&fmt, |k| mem().rd32(va + 4 * k));
-    if super::trace_api() {
+    if PRINT_FORMATTED.load(Ordering::Relaxed) {
+        print!("{s}");
+    } else if super::trace_api() {
         log!("wvsprintfA: {s:?}");
     }
     put_cstr(buf, &s, s.len() as u32 + 1)

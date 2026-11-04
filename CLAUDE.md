@@ -25,7 +25,8 @@ images, the patch EXEs and `Patch*/` are git-ignored.
 In the project root (user's copies):
 - `Black & White (Germany).bin/.cue`: main game, one MODE1/2352 data track, ISO 9660 + Joliet.
 - `Black & White - Insel der Kreaturen (Germany).bin/.cue`: the add-on, same layout.
-- `black_white_patch_v1_20.exe`: official patch, an RTPatch diff (still SafeDisc). Not used.
+- `black_white_patch_v1_20.exe`: official patch 1.20, RTPatch (its EXE still SafeDisc); its
+  new files are needed, applied by `setup::patch_120`.
 - `black_white_patch_v1_42.exe`: unofficial patch (Handsome Matt, bwfiles.com, 2019), installed
   by the user into `Patch1.42/` (18 files). Its `runblack.exe` has no SafeDisc.
 
@@ -47,8 +48,21 @@ game's DLLs IFC22, LHLogR, LHaudiodllR, LHMultiplayerR, LHDialogLib, wearasr, bi
 - `src/iscab.rs`: InstallShield 6 header (file table, file groups) and file data (chunks of
   `[u16 length][raw deflate]`), MD5-checked. Offsets are documented in the code.
 - `src/setup.rs`: `install` puts every file of the groups below `<TARGETDIR>` where the
-  setup would (files beside the cabs come from the disc); `overlay` copies the patch folder
-  over it.
+  setup would (files beside the cabs come from the disc); `patch_120` applies the official
+  patch 1.20 without its installer (below); `overlay` copies the patch 1.42 folder over it.
+- Patch 1.20 (needed: patch 1.42 expects it, e.g. `Scripts\InfoScriptMultiplayer2.txt`):
+  `black_white_patch_v1_20.exe` is an InstallShield "Package for the Web": an EXE with an
+  MS cabinet (`src/mscab.rs`, MSZIP) holding `Disk1` of an InstallShield 6 setup (`iscab`).
+  Its groups below `<TARGETDIR>` are copied (InfoScriptPatch2.txt, LHLogR.dll); its
+  `BWPatch-V100-V102.rtp` is applied by its own `patchw32.dll`, recompiled and run by
+  `src/rtpatch.rs` (`platform::run_library`; a host `_chkstk`, `crt::chkstk`, because that
+  one returns with `jmp eax`) in a child process of the same program (`CHILD_ARG`): RTPatch
+  ends by raising an exception for its own SEH handler, which our runtime cannot catch.
+  Success is read from RTPatch's messages (`user32::PRINT_FORMATTED`). The real installer
+  failed (BW_NOT_INSTALLED although GameDir/GameVersion were in HKCU) and is not needed.
+- `cargo run --release --example install -- [image] [patch 1.20 exe] [patch folder] [out]`
+  (defaults: main disc, `black_white_patch_v1_20.exe`, `Patch1.42`, `game_files/BlackWhite`;
+  `-` skips a patch): 986 files from the disc, 23 RTPatch patches, 18 files of 1.42, ~5 s.
 - `src/game.rs`: loads `runblack.exe` and the DLLs (`DLLS`: each at its own base, moved by
   its relocations) as one image; seeds are the entries and the DLLs' exports. `SELFMOD` is
   marked as code (see below).
@@ -58,8 +72,6 @@ game's DLLs IFC22, LHLogR, LHaudiodllR, LHMultiplayerR, LHDialogLib, wearasr, bi
   comes. `BW_COUNT=<file>`: functions count their calls. `jit::Stats::incomplete` lists the
   functions with unsupported instructions.
 - `src/platform/` (from rustschweine, 2026-11-04) and `src/main.rs`: see below.
-- `cargo run --release --example install -- [image] [patch folder] [out]` (defaults: main disc,
-  `Patch1.42`, `game_files/BlackWhite`): 986 files from the disc, 18 from the patch, ~5 s.
 
 ## The code (2026-11-04)
 
@@ -121,12 +133,14 @@ no own settings). Env variables are `BW_*` (`BW_TRACE_API=1`, `BW_TRACE_REG=1`, 
   `small.rs` (IMM32, COMCTL32, SHELL32, VERSION), DSETUP's DirectXSetupGetVersion (7.0a),
   DirectDraw caps with DDCAPS_3D (the game insists), GetObjectA of DIB sections (their bits
   in guest memory), `xlat` in the lifter (the C runtime's maths dispatcher).
+- Discovery: jump tables count as data (a candidate inside the table before 0x54a180 hid that
+  function).
 - Discovery fix: the code addresses in the operands of what a candidate decoded are taken
   before the next candidate (a word of data pointing into a function came first otherwise:
   the atexit callback 0x6806d0).
 
-How far it runs (2026-11-05, see PLAN.md "Current state"): videos play (Bink), loading goes up
-to "GetNumberOfProfiles", which needs patch 1.20's `Scripts\InfoScriptMultiplayer2.txt`. The
+How far it runs (2026-11-05): the start-up videos play (Bink), the game loads and shows the
+name login ("Bitte gib deinen Namen ..."). The
 start-up videos are skipped unless `BW_INTRO=1` (`kernel32::skipped_video`); waveOut/waveIn
 report no device (silent). `BW_TRACE_FILES=1` logs every file opened. `BW_COUNT=<file>` showed
 which game functions ran (useful to check a parser's callbacks). `IDirectDrawSurface7::QueryInterface(IID_IDirect3DTexture2)` is asked for
