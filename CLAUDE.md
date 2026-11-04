@@ -71,16 +71,23 @@ game's DLLs IFC22, LHLogR, LHaudiodllR, LHMultiplayerR, LHDialogLib, wearasr, bi
   0x102495e0): data decoded as code, never run.
 - x87 environment (fnsave/frstor/fldenv/fnstenv) in a few runtime functions.
 
-`SELFMOD` (0xfc1000, 0xbed bytes, a read/write section) is hand-written assembler: pixel
-converters and span/line drawing. It rewrites itself: `sub_fc1285` stores a pitch into
-immediates (handled by `smc.rs` as fields), 0xfc1225 stores strides into displacements, and
-the line drawer near 0xfc1b42 writes opcode bytes: `mov byte [0xfc1ba5], 47h/4Fh` (and
-0xfc1be1) turns a placeholder byte (0x00 in the file) into `inc edi` / `dec edi`. With the
-placeholder, discovery decodes `00 03` as `add [ebx], al` and loses the instruction stream
-(warnings for fields 0xfc1776, 0xfc1bcf). Needed: decode with the written opcode, and
-future_rust_cop's rewritten-instruction variants (`Smc::variants`, `Lifter::code_is`), which
-rustschweine dropped. Called from .text at 0x7dda5b and 0x7de610.
+`SELFMOD` (0xfc1000, 0xbed bytes, a read/write section) is hand-written assembler: 11
+functions (prologues at 0xfc1144, 0xfc120c, 0xfc1225, 0xfc1285, 0xfc12f4, 0xfc145d, 0xfc17a8,
+0xfc1a16, 0xfc1a47, 0xfc1a74, 0xfc1b37): pixel converters, span and line drawing. They rewrite
+themselves: 0xfc1225 and 0xfc1285 store pitches and strides into immediates and
+displacements (`smc.rs` reads those from guest memory), and the line drawer 0xfc1b37 writes
+opcode bytes: `mov byte [0xfc1ba5], 47h/4Fh` (and 0xfc1be1) turns a placeholder byte (0x00 in
+the file) into `inc edi` / `dec edi` (the only opcode writes: a scan of the raw bytes of
+SELFMOD and .text).
+Only `sub_fc1285` is reachable: .text calls it at 0x7dda5b and 0x7de610 (it only stores the
+pitch into the others' code). No other function is referenced anywhere: no relative call or
+jump, no 32-bit address in any section (the EXE's export table, 13 ordinals named
+`Black.exe`, has every address 0: emptied, probably by the SafeDisc removal). So the rest is
+dead code here, and the rewritten-instruction variants of future_rust_cop are not needed. If
+one of them ever runs, it shows as a call to an unknown address (0xfc1b37 is no entry).
+Discovery still decodes some of the dead code from its "code address in data" rule, hence the
+warnings for fields 0xfc1776 and 0xfc1bcf (harmless).
 
 Tools: `examples/dis.rs <folder> <addr|all>` (an address inside a function shows that
 function), `examples/linear.rs <folder> <addr> [bytes]` (straight-line disassembly),
-`examples/imports.rs <exe or dll>`. `cargo test --release` needs no game files.
+`examples/imports.rs <exe or dll>`, `examples/exports.rs <exe or dll>`. `cargo test --release` needs no game files.
