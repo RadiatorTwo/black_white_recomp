@@ -8,12 +8,17 @@
   `examples/install.rs`. Output `game_files/BlackWhite` (980 files, 491 MB), MD5 of every cab
   file checked.
 
+- 2026-11-04: Recompiler core from rustschweine; `game.rs` loads runblack.exe + 9 DLLs.
+  35,025 functions found, all compiled, 97 with unsupported instructions (CLAUDE.md, "The
+  code"). `SELFMOD` analysed.
+
 ## Next
 
-1. Take the recompiler core from rustschweine (`image.rs`, `discover.rs`, `jit.rs`, `lift*`,
-   `rt.rs`, `smc.rs`, `platform/`) and load `runblack.exe` plus its DLLs.
-2. Function discovery on `runblack.exe`; look at the `SELFMOD` section (who writes it, when).
-3. List the imports actually called, start with kernel32/user32/ddraw.
+1. `SELFMOD`: decode the opcode bytes the line drawer writes, bring back rewritten-instruction
+   variants from future_rust_cop.
+2. MMX (binkw32, QMixer) and SSE (EXE): lift MMX or report no MMX; check the game's CPU check.
+3. Platform layer from rustschweine (`src/platform/`, `main.rs`): start the game, list the
+   imports actually called, start with kernel32/user32/ddraw.
 4. Registry keys and config the setup writes (`SETUP.INX`, `Setup.exe` of patch 1.42).
 
 ## Later
