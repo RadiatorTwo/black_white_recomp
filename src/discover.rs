@@ -40,6 +40,8 @@ pub struct Func {
     pub ins: BTreeSet<u32>,
     /// jmp [index*4 + table]: the instruction's address -> its targets
     pub tables: HashMap<u32, Vec<u32>>,
+    /// the bytes of those tables (start, end)
+    pub table_bytes: Vec<(u32, u32)>,
     pub targets: HashSet<u32>,
     pub calls: HashSet<u32>,
 }
@@ -57,6 +59,7 @@ impl Func {
             name,
             ins: BTreeSet::new(),
             tables: HashMap::new(),
+            table_bytes: Vec::new(),
             targets: HashSet::new(),
             calls: HashSet::new(),
         };
@@ -103,7 +106,8 @@ impl Func {
                                         && p.op0_kind() == OpKind::Register
                                         && p.op0_register() == i.memory_index()
                                 });
-                            let tbl = self.table(code, i.memory_displacement32(), if neg { 8 } else { 4 });
+                            let (tbl, bytes) = self.table(code, i.memory_displacement32(), if neg { 8 } else { 4 });
+                            self.table_bytes.push(bytes);
                             for &t in &tbl {
                                 self.targets.insert(t);
                                 if self.inside(t) {
@@ -130,8 +134,8 @@ impl Func {
     }
 
     /// Jump table entries; MSVC's memcpy indexes some tables with negative values, so valid
-    /// entries just before the table count too.
-    fn table(&self, code: &Code, at: u32, back: u32) -> Vec<u32> {
+    /// entries just before the table count too. Also the table's bytes (start, end).
+    fn table(&self, code: &Code, at: u32, back: u32) -> (Vec<u32>, (u32, u32)) {
         let mut out = Vec::new();
         for k in 1..=back {
             let t = code.img.u32(at - 4 * k);
@@ -157,8 +161,9 @@ impl Func {
             }
             fwd.push(t);
         }
+        let bytes = (at - 4 * out.len() as u32, at + 4 * fwd.len() as u32);
         out.extend(fwd.into_iter().filter(|&x| x != 0));
-        out
+        (out, bytes)
     }
 }
 
@@ -242,6 +247,11 @@ pub fn find_functions(code: &mut Code, seeds: &[(u32, String)]) -> Vec<(u32, u32
                     seen.1.extend(a + 1..a + code.at(a).unwrap().len() as u32);
                     new.push(a);
                 }
+            }
+            // jump tables are data: no candidate may start or run inside one (0x54a15c, inside
+            // the table before 0x54a180, hid that function)
+            for &(lo, hi) in &f.table_bytes {
+                seen.1.extend((lo..hi).filter(|b| !seen.0.contains(b)));
             }
             for &t in &f.calls {
                 if img.is_code(t) && entries.insert(t) {

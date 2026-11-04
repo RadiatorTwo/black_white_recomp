@@ -1051,7 +1051,30 @@ fn load_bitmap(c: &mut Cpu) -> u32 {
     0
 }
 
+/// wvsprintfA(buf, format, va_list)
+fn wvsprintf(c: &mut Cpu) -> u32 {
+    let (buf, fmt, va) = (arg(c, 0), cstr(arg(c, 1)), arg(c, 2));
+    let s = super::printf(&fmt, |k| mem().rd32(va + 4 * k));
+    if super::trace_api() {
+        log!("wvsprintfA: {s:?}");
+    }
+    put_cstr(buf, &s, s.len() as u32 + 1)
+}
+
+/// OemToCharA / CharToOemA(from, to): the same bytes.
+fn oem_char(c: &mut Cpu) -> u32 {
+    let (from, to) = (arg(c, 0), arg(c, 1));
+    if from != to {
+        let s = cstr(from);
+        put_cstr(to, &s, s.len() as u32 + 1);
+    }
+    1
+}
+
 pub const MORE_IMPORTS: &[Import] = &[
+    ("wvsprintfA", 3, wvsprintf),
+    ("OemToCharA", 2, oem_char),
+    ("CharToOemA", 2, oem_char),
     ("LoadAcceleratorsA", 2, load_accelerators),
     ("LoadStringA", 4, load_string),
     ("GetFocus", 0, get_focus),

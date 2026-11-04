@@ -19,36 +19,29 @@
 - 2026-11-04: Platform layer from rustschweine with general DLL loading; the game runs up
   to its first BeginScene and the audio start (CLAUDE.md, "Platform layer").
 
-## Current state (2026-11-05): not running yet
+## Current state (2026-11-05): runs to the name login
 
-The game loads far (scripts, ~7,000 German texts, creatures, animations, meshes) and crashes
-at "GetNumberOfProfiles" (0x56e160 reads the empty multiplayer text table [0xD17C98]):
-`Scripts\InfoScriptMultiplayer2.txt` is missing. Patch 1.42 expects patch 1.20 to be
-installed first; 1.20 adds `Scripts\InfoScriptMultiplayer2.txt`, `Scripts\InfoScriptPatch2.txt`,
-`Online Maps\ConditionTemplate.txt` and changes more files, inside its RTPatch file
-(`BWPatch-V100-V102.rtp`, undocumented compression). `InfoScriptPatch2.txt` was copied into
-`game_files/BlackWhite/Scripts` by hand for a test (it is also a plain file in the 1.20 cab).
+Patch 1.20 is applied without its installer: `examples/rtpatch.rs` recompiles the patch's own
+`patchw32.dll` and calls `RTPatchApply32NoCall("<old dir>" "<patch file>")` on a copy of the
+disc install (12 files modified, 8 added, 3 deleted). The game folder is now: disc
+(`game_files/bw_v100`) -> 1.20 (`game_files/bw_v120`) -> `InfoScriptPatch2.txt` (plain file in
+the 1.20 cab) -> Patch1.42. Built by hand for now (read-only flags cleared before copying
+1.42 over it). With it the game gets past its loading to the name login.
 
-Chosen way: run the real 1.20 installer on a clean 1.00 copy.
-1. Done: `cargo run --release --example install -- "Black & White (Germany).bin" - game_files/bw_v100`
-   (`-`: disc files only).
-2. Done (2026-11-05): the 1.20 installer reads `GameDir` from **HKCU** (its setup.inx sets
-   the default root to HKEY_CURRENT_USER), not HKLM: set
-   `HKCU\Software\Lionhead Studios Ltd\Black & White` GameDir = `C:\!Code2\black_white_recomp\game_files\bw_v100`
-   (no admin needed). The HKLM key from the first try is not needed (remove it as admin).
-   The user's 1.42 install had left `GameVersion = 142` (DWORD) there; deleted so 1.20 sees
-   a 1.00 install. Then it still said BW_NOT_INSTALLED ("You must install Black & White to run
-   this patch.", value.shl): it needs GameVersion too; set GameVersion = 100 (DWORD, 1.00).
-   Restore later with `reg add ... /v GameVersion /t REG_DWORD /d 142`.
-3. To do by the user: run `black_white_patch_v1_20.exe`, target `game_files\bw_v100`.
-4. Then: `setup.rs` takes the 1.20 result (disc, then 1.20, then 1.42) and the game runs on.
-   Delete the registry key afterwards.
+The 1.20 installer could not be used: it reads GameDir and GameVersion from HKCU and still
+said BW_NOT_INSTALLED (cause unknown, maybe its elevated engine). Registry values changed by
+us for that attempt, under `HKCU\Software\Lionhead Studios Ltd\Black & White`: GameDir set
+to `game_filesw_v100`, GameVersion 142 -> 100; HKLM key with GameDir added by the user.
+
+To do: automate it in `setup.rs` (the patch EXEs are an InstallShield PFTW wrapper around an
+MS-CAB (MSZIP) with an IS6 setup: patchw32.dll, the .rtp, InfoScriptPatch2.txt).
 
 ## Next
 
-1. Patch 1.20 files into the game folder (above), then keep running the game.
-2. Audio: QMixer and binkw32 find no waveOut device (silent); real output later.
-3. Settings the patch 1.42 Setup.exe writes (resolution, windowed mode).
+1. Keep running the game from the name login on.
+2. Automate patch 1.20 in `setup.rs` (above).
+3. Audio: QMixer and binkw32 find no waveOut device (silent); real output later.
+4. Settings the patch 1.42 Setup.exe writes (resolution, windowed mode).
 
 ## Later
 

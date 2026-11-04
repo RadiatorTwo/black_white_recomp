@@ -700,7 +700,7 @@ pub fn system_proc(module: u32, name: &str) -> u32 {
 
 fn find_import(dll: &str, name: &str) -> Option<&'static Import> {
     let tables: &[&[Import]] = match dll.to_ascii_uppercase().as_str() {
-        "KERNEL32.DLL" => &[kernel32::IMPORTS, kernel32::MORE_IMPORTS, kernel32::MORE_IMPORTS_2, kernel32::MORE_IMPORTS_3],
+        "KERNEL32.DLL" => &[kernel32::IMPORTS, kernel32::MORE_IMPORTS, kernel32::MORE_IMPORTS_2, kernel32::MORE_IMPORTS_3, kernel32::MORE_IMPORTS_4],
         "USER32.DLL" => &[dialog::IMPORTS, user32::IMPORTS, user32::MORE_IMPORTS, gdi32::USER_IMPORTS],
         "GDI32.DLL" => &[gdi32::IMPORTS],
         "ADVAPI32.DLL" => &[advapi32::IMPORTS],
@@ -740,6 +740,18 @@ pub struct Module {
 }
 
 impl Module {
+    fn of(img: &Image, path: &'static str) -> Module {
+        Module {
+            path,
+            base: img.base,
+            entry: img.entry,
+            exports: img.exports(),
+            ordinals: img.export_ordinals(),
+            attached: AtomicBool::new(false),
+            imports: img.imports().into_iter().map(|i| i.dll).collect::<std::collections::BTreeSet<_>>().into_iter().collect(),
+        }
+    }
+
     /// Its file name without folder.
     pub fn file(&self) -> &str {
         self.path.rsplit('/').next().unwrap()
@@ -850,20 +862,7 @@ pub fn run_game(game: &crate::game::Game, game_dir: PathBuf) -> u32 {
     m.map(THUNK_LO, THUNK_LO + 4 * THUNK_N);
     m.map(RET_MAGIC, RET_MAGIC + 0x1000);
     init_tib(TIB, STACK_LO, STACK_HI);
-    let modules = game
-        .dlls
-        .iter()
-        .zip(crate::game::DLLS)
-        .map(|(img, (path, _))| Module {
-            path,
-            base: img.base,
-            entry: img.entry,
-            exports: img.exports(),
-            ordinals: img.export_ordinals(),
-            attached: AtomicBool::new(false),
-            imports: img.imports().into_iter().map(|i| i.dll).collect::<std::collections::BTreeSet<_>>().into_iter().collect(),
-        })
-        .collect();
+    let modules = game.dlls.iter().zip(crate::game::DLLS).map(|(img, (path, _))| Module::of(img, path)).collect();
     let _ = MODULES.set(modules);
     for img in &game.dlls {
         load_image(img);
@@ -914,6 +913,34 @@ pub fn run_game(game: &crate::game::Game, game_dir: PathBuf) -> u32 {
     rt::run(&mut c, game.exe.entry);
     turn_give();
     c.r[EAX]
+}
+
+/// Run one DLL by itself, as a tool (patch 1.20's patchw32.dll): load it at its base with
+/// `dir` as the game folder, run its DllMain, then `call` (which calls into it). Its code must
+/// have been compiled. Returns what `call` returns.
+pub fn run_library(img: &Image, path: &'static str, dir: PathBuf, call: impl FnOnce(&mut Cpu, &Module) -> u32) -> u32 {
+    let _ = GAME_DIR.set(dir);
+    let _ = MEM.set(Memory::reserve());
+    let m = mem();
+    m.map(TIB, TIB + 0x1000);
+    m.map(STACK_LO, STACK_HI);
+    m.map(THUNK_LO, THUNK_LO + 4 * THUNK_N);
+    m.map(RET_MAGIC, RET_MAGIC + 0x1000);
+    init_tib(TIB, STACK_LO, STACK_HI);
+    let _ = MODULES.set(vec![Module::of(img, path)]);
+    load_image(img);
+    rt::set_handler(on_event);
+    rt::set_yield(turn_yield);
+    catch_faults();
+    let mut c = Cpu::new(m);
+    c.fs_base = TIB;
+    c.r[ESP] = STACK_HI - 64;
+    turn_take();
+    let module = &MODULES.get().unwrap()[0];
+    attach(&mut c, module);
+    let r = call(&mut c, module);
+    turn_give();
+    r
 }
 
 /// C `printf` formatting with 32-bit arguments (`arg(k)` is the k-th one): flags, width,

@@ -20,3 +20,16 @@ pub fn ftol(c: &mut Cpu) {
     // ret
     c.r[ESP] += 4;
 }
+
+/// `_chkstk` / `__alloca_probe` (eax: bytes of locals): makes room on the stack below the return
+/// address and returns. Done by the host where the original returns with `jmp eax`, which the
+/// recompiled code cannot follow (the return address is no function entry): patchw32.dll's.
+pub fn chkstk(c: &mut Cpu) {
+    let m = super::mem();
+    let ret = m.rd32(c.r[ESP]);
+    c.r[ESP] = c.r[ESP].wrapping_add(4).wrapping_sub(c.r[EAX]);
+    c.r[EAX] = ret;
+}
+
+/// The bytes `_chkstk` starts with in Visual C++ 6's runtime that returns with `jmp eax`.
+pub const CHKSTK_JMP: &[u8] = &[0x51, 0x8b, 0xcc, 0x83, 0xc1, 0x08, 0x3d, 0x00, 0x10, 0x00, 0x00];

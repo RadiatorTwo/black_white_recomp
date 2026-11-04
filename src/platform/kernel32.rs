@@ -1273,7 +1273,13 @@ fn find_first_file(c: &mut Cpu) -> u32 {
         None => ("", pattern.as_str()),
     };
     let mut entries = Vec::new();
-    if let Ok(list) = std::fs::read_dir(host_path(if dir.is_empty() { "." } else { dir })) {
+    if !mask.contains(['*', '?']) {
+        // a path without wildcards: that file or folder itself (maps into the game folder, so
+        // look at it directly, not in its parent)
+        if let Ok(md) = std::fs::metadata(host_path(&pattern)) {
+            entries.push(FindEntry { name: mask.to_string(), attributes: attributes(&md), size: md.len(), time: md.modified().map_or(0, file_time) });
+        }
+    } else if let Ok(list) = std::fs::read_dir(host_path(if dir.is_empty() { "." } else { dir })) {
         for e in list.flatten() {
             let name = e.file_name().to_string_lossy().into_owned();
             if !wildcard(mask, &name) {
@@ -1656,21 +1662,32 @@ fn get_file_information_by_handle(c: &mut Cpu) -> u32 {
 }
 
 /// CreateFileMappingA(file, security, protect, size high, size low, name): a mapping of a
-/// file we opened (read only: views are copies).
+/// file we opened; a size past the file's end makes the file that long (as Windows does).
 fn create_file_mapping(c: &mut Cpu) -> u32 {
-    let h = arg(c, 0);
+    let (h, hi, lo) = (arg(c, 0), arg(c, 3), arg(c, 4));
     let Some(f) = file_of(h) else {
         log!("CreateFileMappingA({h:#x}): only files can be mapped");
         set_last_error(ERROR_INVALID_HANDLE);
         return 0;
     };
+    let size = (hi as u64) << 32 | lo as u64;
+    {
+        let g = f.lock().unwrap();
+        if size > g.metadata().map_or(0, |m| m.len()) && g.set_len(size).is_err() {
+            set_last_error(ERROR_ACCESS_DENIED);
+            return 0;
+        }
+    }
     objects().add(Obj::Mapping(f))
 }
 
+/// The views of mapped files: guest address -> (file, offset, bytes, written back on unmap).
+static VIEWS: Mutex<BTreeMap<u32, (Arc<Mutex<std::fs::File>>, u64, u32, bool)>> = Mutex::new(BTreeMap::new());
+
 /// MapViewOfFile(mapping, access, offset high, offset low, bytes): the file's bytes copied
-/// into guest memory.
+/// into guest memory; a view with FILE_MAP_WRITE (2) is written back by UnmapViewOfFile.
 fn map_view_of_file(c: &mut Cpu) -> u32 {
-    let (h, hi, lo, n) = (arg(c, 0), arg(c, 2), arg(c, 3), arg(c, 4));
+    let (h, access, hi, lo, n) = (arg(c, 0), arg(c, 1), arg(c, 2), arg(c, 3), arg(c, 4));
     let f = match objects().map.get(&h) {
         Some(Obj::Mapping(f)) => f.clone(),
         _ => {
@@ -1678,20 +1695,31 @@ fn map_view_of_file(c: &mut Cpu) -> u32 {
             return 0;
         }
     };
-    let mut f = f.lock().unwrap();
     let at = (hi as u64) << 32 | lo as u64;
-    let len = f.metadata().map_or(0, |m| m.len()).saturating_sub(at);
+    let mut g = f.lock().unwrap();
+    let len = g.metadata().map_or(0, |m| m.len()).saturating_sub(at);
     let n = if n == 0 { len } else { (n as u64).min(len) } as u32;
     let p = alloc(n.max(1));
-    if f.seek(SeekFrom::Start(at)).is_err() || f.read_exact(mem().slice(p, n as usize)).is_err() {
+    if g.seek(SeekFrom::Start(at)).is_err() || g.read_exact(mem().slice(p, n as usize)).is_err() {
         free(p);
         return 0;
     }
+    drop(g);
+    VIEWS.lock().unwrap().insert(p, (f, at, n, access & 2 != 0));
     p
 }
 
 fn unmap_view_of_file(c: &mut Cpu) -> u32 {
-    free(arg(c, 0)) as u32
+    let p = arg(c, 0);
+    if let Some((f, at, n, write)) = VIEWS.lock().unwrap().remove(&p) {
+        if write {
+            let mut g = f.lock().unwrap();
+            if g.seek(SeekFrom::Start(at)).is_err() || g.write_all(mem().slice(p, n as usize)).is_err() {
+                log!("UnmapViewOfFile({p:#x}): cannot write the view back");
+            }
+        }
+    }
+    free(p) as u32
 }
 
 /// FormatMessageA: no message texts.
@@ -1792,6 +1820,121 @@ fn open_file(c: &mut Cpu) -> u32 {
 }
 
 pub const MORE_IMPORTS_3: &[Import] = &[("OpenFile", 3, open_file)];
+
+
+// ---- for patch 1.20's patchw32.dll (RTPatch, `examples/rtpatch.rs`) ---------------------------
+
+fn are_file_apis_ansi(_: &mut Cpu) -> u32 {
+    1
+}
+fn set_file_apis(_: &mut Cpu) -> u32 {
+    0
+}
+/// lstrcmpiA: compared without case (as the C locale).
+fn lstrcmpi(c: &mut Cpu) -> u32 {
+    let (a, b) = (cstr(arg(c, 0)).to_ascii_lowercase(), cstr(arg(c, 1)).to_ascii_lowercase());
+    match a.cmp(&b) {
+        std::cmp::Ordering::Less => u32::MAX,
+        std::cmp::Ordering::Equal => 0,
+        std::cmp::Ordering::Greater => 1,
+    }
+}
+/// GetShortPathNameA(long, buf, n): the same path (no 8.3 names).
+fn get_short_path_name(c: &mut Cpu) -> u32 {
+    let (from, buf, n) = (cstr(arg(c, 0)), arg(c, 1), arg(c, 2));
+    if (from.len() as u32) >= n {
+        return from.len() as u32 + 1;
+    }
+    put_cstr(buf, &from, n)
+}
+/// MoveFileExA(from, to, flags): MOVEFILE_REPLACE_EXISTING (1) replaces; a move on reboot
+/// (4) with no target deletes now.
+fn move_file_ex(c: &mut Cpu) -> u32 {
+    let (from, to, flags) = (arg(c, 0), arg(c, 1), arg(c, 2));
+    let src = host_path(&cstr(from));
+    if to == 0 {
+        return std::fs::remove_file(src).is_ok() as u32;
+    }
+    let dst = host_path(&cstr(to));
+    if dst.exists() {
+        if flags & 1 == 0 {
+            set_last_error(183);
+            return 0;
+        }
+        let _ = std::fs::remove_file(&dst);
+    }
+    std::fs::rename(src, dst).is_ok() as u32
+}
+fn set_file_time(_: &mut Cpu) -> u32 {
+    1
+}
+/// SystemTimeToFileTime(SYSTEMTIME*, FILETIME*)
+fn system_time_to_file_time(c: &mut Cpu) -> u32 {
+    let m = mem();
+    let (st, ft) = (arg(c, 0), arg(c, 1));
+    let (y, mo, d) = (m.rd16(st) as i64, m.rd16(st + 2) as i64, m.rd16(st + 6) as i64);
+    let (h, mi, s, ms) = (m.rd16(st + 8) as i64, m.rd16(st + 10) as i64, m.rd16(st + 12) as i64, m.rd16(st + 14) as i64);
+    // days since 1970-01-01 (Howard Hinnant's algorithm), then since 1601
+    let y2 = if mo <= 2 { y - 1 } else { y };
+    let era = y2.div_euclid(400);
+    let yoe = y2 - era * 400;
+    let doy = (153 * (if mo > 2 { mo - 3 } else { mo + 9 }) + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146097 + doe - 719468 + 134_774;
+    let t = ((((days * 24 + h) * 60 + mi) * 60 + s) * 1000 + ms) as u64 * 10_000;
+    m.wr32(ft, t as u32);
+    m.wr32(ft + 4, (t >> 32) as u32);
+    1
+}
+/// GetProfileStringA(section, key, default, buf, n): win.ini is empty.
+fn get_profile_string(c: &mut Cpu) -> u32 {
+    let (default, buf, n) = (arg(c, 2), arg(c, 3), arg(c, 4));
+    let v = if default == 0 { String::new() } else { cstr(default) };
+    put_cstr(buf, &v, n)
+}
+/// GetProfileSectionA / GetPrivateProfileSectionA: empty sections.
+fn get_profile_section(c: &mut Cpu) -> u32 {
+    let (buf, n) = (arg(c, 1), arg(c, 2));
+    if n >= 2 {
+        mem().wr8(buf, 0);
+        mem().wr8(buf + 1, 0);
+    }
+    0
+}
+/// The ini writers: not kept.
+fn write_profile(_: &mut Cpu) -> u32 {
+    1
+}
+/// CreateProcessA: no other programs run.
+fn create_process(c: &mut Cpu) -> u32 {
+    log!("CreateProcessA({}, {}): not run", cstr(arg(c, 0)), cstr(arg(c, 1)));
+    set_last_error(ERROR_FILE_NOT_FOUND);
+    0
+}
+fn get_exit_code_process(_: &mut Cpu) -> u32 {
+    0
+}
+
+pub const MORE_IMPORTS_4: &[Import] = &[
+    ("AreFileApisANSI", 0, are_file_apis_ansi),
+    ("SetFileApisToANSI", 0, set_file_apis),
+    ("SetFileApisToOEM", 0, set_file_apis),
+    ("lstrcmpiA", 2, lstrcmpi),
+    ("GetShortPathNameA", 3, get_short_path_name),
+    ("MoveFileExA", 3, move_file_ex),
+    ("SetFileTime", 4, set_file_time),
+    ("SystemTimeToFileTime", 2, system_time_to_file_time),
+    ("LocalFileTimeToFileTime", 2, file_time_to_local_file_time),
+    ("GetProfileStringA", 5, get_profile_string),
+    ("GetProfileSectionA", 3, get_profile_section),
+    ("GetPrivateProfileSectionA", 4, get_profile_section),
+    ("WriteProfileStringA", 3, write_profile),
+    ("WriteProfileSectionA", 2, write_profile),
+    ("WritePrivateProfileStringA", 4, write_profile),
+    ("WritePrivateProfileSectionA", 3, write_profile),
+    ("CreateProcessA", 10, create_process),
+    ("GetExitCodeProcess", 2, get_exit_code_process),
+];
 
 pub const IMPORTS: &[Import] = &[
     ("FindResourceA", 3, find_resource),
