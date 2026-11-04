@@ -63,13 +63,19 @@ game's DLLs IFC22, LHLogR, LHaudiodllR, LHMultiplayerR, LHDialogLib, wearasr, bi
 ## The code (2026-11-04)
 
 `cargo run --release --example functions -- game_files/BlackWhite [--missing] [--gaps]`:
-35,025 functions, 37,591 entries, all compiled; 97 contain instructions the lifter lacks:
-- binkw32 (43) and QMixer (20): MMX. The EXE (24, 0x7a1400-0x7aca00 and 0x8a25d0-0x8a30a0):
-  SSE. These are CPU-specific paths; `rt_cpuid` reports MMX but no SSE, so either MMX gets
-  lifted or CPUID stops reporting it (check whether the game insists on MMX first).
+35,025 functions, 37,591 entries, all compiled; 92 contain instructions the lifter lacks,
+none on a path that runs:
+- binkw32 (42) and QMixer (20): MMX. They test CPUID bit 23; `rt_cpuid` reports a Pentium
+  (family 5) without MMX, so they take their plain paths. The EXE uses no MMX itself (its
+  `test ..., 800000h` are object flags).
+- The EXE (24, 0x7a1400-0x7aca00 and 0x8a25d0-0x8a30a0): SSE, plus `fcmovnb` and
+  `ldmxcsr`/`stmxcsr` there. The Intel maths library's dispatcher (0x8a2610, result in
+  [0xfac840]) picks them only for family 6/15 with SSE; family 5 gets the Pentium path.
 - `mov [eax], es` / `fs` / 16-bit addressing (0x424734, 0x465fe8, 0x4a4a4a, 0x7d1a47,
   0x102495e0): data decoded as code, never run.
-- x87 environment (fnsave/frstor/fldenv/fnstenv) in a few runtime functions.
+If one of them runs after all, the generated code reports the unsupported instruction.
+`fnstenv`/`fldenv`/`fnsave`/`frstor` (the C runtime's maths error paths, 0x7c7c12,
+0x7d3bf3, and the same in binkw32 and LHaudiodllR) go to `rt_x87` (`tests/x87env.rs`).
 
 `SELFMOD` (0xfc1000, 0xbed bytes, a read/write section) is hand-written assembler: 11
 functions (prologues at 0xfc1144, 0xfc120c, 0xfc1225, 0xfc1285, 0xfc12f4, 0xfc145d, 0xfc17a8,

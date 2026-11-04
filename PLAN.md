@@ -12,13 +12,15 @@
   35,025 functions found, all compiled, 97 with unsupported instructions (CLAUDE.md, "The
   code"). `SELFMOD` analysed: only `sub_fc1285` is reachable (stores pitches); the rest,
   with its opcode rewriting, is dead code here.
+- 2026-11-04: CPUID without MMX (binkw32, QMixer take plain paths; the EXE's SSE paths need
+  family 6); x87 environment instructions. 92 functions left with unsupported instructions,
+  none reachable.
 
 ## Next
 
-1. MMX (binkw32, QMixer) and SSE (EXE): lift MMX or report no MMX; check the game's CPU check.
-2. Platform layer from rustschweine (`src/platform/`, `main.rs`): start the game, list the
+1. Platform layer from rustschweine (`src/platform/`, `main.rs`): start the game, list the
    imports actually called, start with kernel32/user32/ddraw.
-3. Registry keys and config the setup writes (`SETUP.INX`, `Setup.exe` of patch 1.42).
+2. Registry keys and config the setup writes (`SETUP.INX`, `Setup.exe` of patch 1.42).
 
 ## Later
 

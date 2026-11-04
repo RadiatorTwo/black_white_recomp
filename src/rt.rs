@@ -296,10 +296,12 @@ pub extern "C" fn rt_trap(cpu: *mut Cpu, addr: u32, kind: u32) {
 
 pub extern "C" fn rt_cpuid(cpu: *mut Cpu) {
     let c = unsafe { &mut *cpu };
-    // a plain Pentium with FPU, TSC and MMX
+    // a plain Pentium (family 5) with FPU, TSC, CX8 and CMOV, without MMX: binkw32 and QMixer
+    // then take their plain paths (they test bit 23), and the EXE's Intel maths library
+    // (0x8a2610) its Pentium path, never the SSE one (family 6/15 only)
     match c.r[EAX] {
         0 => c.r[..4].copy_from_slice(&[1, 0x756e6547, 0x6c65746e, 0x49656e69]),
-        _ => c.r[..4].copy_from_slice(&[0x543, 0, 0, 0x0080_8111]),
+        _ => c.r[..4].copy_from_slice(&[0x543, 0, 0, 0x0000_8111]),
     }
 }
 
@@ -431,9 +433,17 @@ pub enum X87 {
     Fprem,
     Fprem1,
     Fxtract,
+    /// store the 28-byte environment at `addr`, mask all exceptions
+    Fnstenv,
+    /// load the 28-byte environment at `addr`
+    Fldenv,
+    /// store the environment and the eight registers (108 bytes) at `addr`, then `fninit`
+    Fnsave,
+    /// load the environment and the eight registers at `addr`
+    Frstor,
 }
 
-const X87_OPS: [X87; 15] = [
+const X87_OPS: [X87; 19] = [
     X87::LoadF80,
     X87::StoreF80,
     X87::Fxam,
@@ -449,6 +459,10 @@ const X87_OPS: [X87; 15] = [
     X87::Fprem,
     X87::Fprem1,
     X87::Fxtract,
+    X87::Fnstenv,
+    X87::Fldenv,
+    X87::Fnsave,
+    X87::Frstor,
 ];
 
 const C0: u16 = 0x100;
@@ -541,6 +555,40 @@ pub extern "C" fn rt_x87(cpu: *mut Cpu, op: u32, addr: u32) {
             let b = f64_to_f80(x);
             unsafe { std::slice::from_raw_parts_mut(c.mem.add(addr as usize), 10) }.copy_from_slice(&b);
             c.fpop();
+        }
+        X87::Fnstenv | X87::Fnsave => {
+            // 32-bit protected-mode layout: control, status (with TOP), tags, then the last
+            // instruction and operand pointers, which are not tracked (0). Tags are not
+            // tracked either: every register reads as valid.
+            let env = unsafe { std::slice::from_raw_parts_mut(c.mem.add(addr as usize), 28) };
+            env.fill(0);
+            env[0..2].copy_from_slice(&c.fcw.to_le_bytes());
+            let sw = (c.fsw & !0x3800) | ((c.top as u16 & 7) << 11);
+            env[4..6].copy_from_slice(&sw.to_le_bytes());
+            if matches!(op, X87::Fnsave) {
+                for k in 0..8 {
+                    let b = f64_to_f80(c.st(k));
+                    unsafe { std::slice::from_raw_parts_mut(c.mem.add((addr + 28 + 10 * k) as usize), 10) }.copy_from_slice(&b);
+                }
+                c.fcw = 0x37f;
+                c.fsw = 0;
+                c.top = 0;
+            } else {
+                c.fcw |= 0x3f;
+            }
+        }
+        X87::Fldenv | X87::Frstor => {
+            let env = unsafe { std::slice::from_raw_parts(c.mem.add(addr as usize), 28) };
+            c.fcw = u16::from_le_bytes([env[0], env[1]]);
+            let sw = u16::from_le_bytes([env[4], env[5]]);
+            c.fsw = sw & !0x3800;
+            c.top = ((sw >> 11) & 7) as u32;
+            if matches!(op, X87::Frstor) {
+                for k in 0..8 {
+                    let b: [u8; 10] = unsafe { std::slice::from_raw_parts(c.mem.add((addr + 28 + 10 * k) as usize), 10) }.try_into().unwrap();
+                    c.set_st(k, f80_to_f64(&b));
+                }
+            }
         }
         X87::Fxam => {
             // empty registers are not tracked: an empty one reads as what it last held
