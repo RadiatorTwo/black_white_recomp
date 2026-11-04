@@ -37,7 +37,8 @@ Chosen way: run the real 1.20 installer on a clean 1.00 copy.
    `HKCU\Software\Lionhead Studios Ltd\Black & White` GameDir = `C:\!Code2\black_white_recomp\game_files\bw_v100`
    (no admin needed). The HKLM key from the first try is not needed (remove it as admin).
    The user's 1.42 install had left `GameVersion = 142` (DWORD) there; deleted so 1.20 sees
-   a 1.00 install (the disc installer writes no GameVersion; 1.20 writes 120 afterwards).
+   a 1.00 install. Then it still said BW_NOT_INSTALLED ("You must install Black & White to run
+   this patch.", value.shl): it needs GameVersion too; set GameVersion = 100 (DWORD, 1.00).
    Restore later with `reg add ... /v GameVersion /t REG_DWORD /d 142`.
 3. To do by the user: run `black_white_patch_v1_20.exe`, target `game_files\bw_v100`.
 4. Then: `setup.rs` takes the 1.20 result (disc, then 1.20, then 1.42) and the game runs on.
