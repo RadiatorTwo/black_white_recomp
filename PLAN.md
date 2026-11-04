@@ -34,12 +34,12 @@ Chosen way: run the real 1.20 installer on a clean 1.00 copy.
    (`-`: disc files only).
 2. Done (2026-11-05): the 1.20 installer reads `GameDir` from **HKCU** (its setup.inx sets
    the default root to HKEY_CURRENT_USER), not HKLM: set
-   `HKCU\Software\Lionhead Studios Ltd\Black & White` GameDir = `C:\!Code2lack_white_recomp\game_filesw_v100`
+   `HKCU\Software\Lionhead Studios Ltd\Black & White` GameDir = `C:\!Code2\black_white_recomp\game_files\bw_v100`
    (no admin needed). The HKLM key from the first try is not needed (remove it as admin).
    The user's 1.42 install had left `GameVersion = 142` (DWORD) there; deleted so 1.20 sees
    a 1.00 install (the disc installer writes no GameVersion; 1.20 writes 120 afterwards).
    Restore later with `reg add ... /v GameVersion /t REG_DWORD /d 142`.
-3. To do by the user: run `black_white_patch_v1_20.exe`, target `game_filesw_v100`.
+3. To do by the user: run `black_white_patch_v1_20.exe`, target `game_files\bw_v100`.
 4. Then: `setup.rs` takes the 1.20 result (disc, then 1.20, then 1.42) and the game runs on.
    Delete the registry key afterwards.
 
