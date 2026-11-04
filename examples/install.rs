@@ -1,6 +1,7 @@
 //! Makes the game folder from the CD image and a patch folder:
 //! `cargo run --release --example install -- [image.bin] [patch folder] [out]`
-//! (defaults: `Black & White (Germany).bin`, `Patch1.42`, `game_files/BlackWhite`).
+//! (defaults: `Black & White (Germany).bin`, `Patch1.42`, `game_files/BlackWhite`; `-` as the patch
+//! folder: the disc's files only, as the installer leaves them).
 
 use black_white_recomp::setup;
 use std::path::PathBuf;
@@ -19,6 +20,8 @@ fn main() {
     };
     let r = setup::install(&disc, &out, &mut progress).unwrap_or_else(|e| panic!("{e}"));
     println!("disc: {} files, {} bytes", r.files, r.bytes);
-    let r = setup::overlay(&patch, &out, &mut progress).unwrap_or_else(|e| panic!("{e}"));
-    println!("patch: {} files, {} bytes", r.files, r.bytes);
+    if patch.as_os_str() != "-" {
+        let r = setup::overlay(&patch, &out, &mut progress).unwrap_or_else(|e| panic!("{e}"));
+        println!("patch: {} files, {} bytes", r.files, r.bytes);
+    }
 }

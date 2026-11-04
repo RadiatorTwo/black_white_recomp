@@ -125,9 +125,11 @@ no own settings). Env variables are `BW_*` (`BW_TRACE_API=1`, `BW_TRACE_REG=1`, 
   before the next candidate (a word of data pointing into a function came first otherwise:
   the atexit callback 0x6806d0).
 
-How far it runs (2026-11-04): all DLLs start, WinMain runs, DirectDraw/Direct3D 7 are set up
-(state blocks, textures), the first BeginScene comes, then audio starts (QMixer: OpenFile,
-waveOut are next). `IDirectDrawSurface7::QueryInterface(IID_IDirect3DTexture2)` is asked for
+How far it runs (2026-11-05, see PLAN.md "Current state"): videos play (Bink), loading goes up
+to "GetNumberOfProfiles", which needs patch 1.20's `Scripts\InfoScriptMultiplayer2.txt`. The
+start-up videos are skipped unless `BW_INTRO=1` (`kernel32::skipped_video`); waveOut/waveIn
+report no device (silent). `BW_TRACE_FILES=1` logs every file opened. `BW_COUNT=<file>` showed
+which game functions ran (useful to check a parser's callbacks). `IDirectDrawSurface7::QueryInterface(IID_IDirect3DTexture2)` is asked for
 every texture and refused (warnings), apparently without harm.
 
 Tools: `examples/dis.rs <folder> <addr|all>` (an address inside a function shows that
