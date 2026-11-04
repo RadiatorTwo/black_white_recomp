@@ -57,6 +57,7 @@ game's DLLs IFC22, LHLogR, LHaudiodllR, LHMultiplayerR, LHDialogLib, wearasr, bi
   they work. `ResId::from_guest` (needs guest memory) is left out until the platform layer
   comes. `BW_COUNT=<file>`: functions count their calls. `jit::Stats::incomplete` lists the
   functions with unsupported instructions.
+- `src/platform/` (from rustschweine, 2026-11-04) and `src/main.rs`: see below.
 - `cargo run --release --example install -- [image] [patch folder] [out]` (defaults: main disc,
   `Patch1.42`, `game_files/BlackWhite`): 986 files from the disc, 18 from the patch, ~5 s.
 
@@ -93,6 +94,41 @@ dead code here, and the rewritten-instruction variants of future_rust_cop are no
 one of them ever runs, it shows as a call to an unknown address (0xfc1b37 is no entry).
 Discovery still decodes some of the dead code from its "code address in data" rule, hence the
 warnings for fields 0xfc1776 and 0xfc1bcf (harmless).
+
+## Platform layer (`src/platform/`)
+
+Taken from rustschweine (not future_rust_cop: Black & White uses DirectDraw 7 + Direct3D 7
+like Hogs of War, whose `d3d.rs` draws a Direct3D 7 HAL device with OpenGL; Future Cop has
+Glide and a software renderer). Hogs-only modules are gone (ground, objects, dplay) or
+stubs for now (`fps.rs`: original pacing, `wide.rs`: no widescreen, `dialog/extend.rs`:
+no own settings). Env variables are `BW_*` (`BW_TRACE_API=1`, `BW_TRACE_REG=1`, ...).
+
+- Modules (`mod.rs`): every DLL of `game::DLLS` is a `Module`; imports between the EXE and
+  the DLLs are bound to the DLLs' exports (by name or `#ordinal`), the rest to our functions
+  (`find_import`). The DllMains of the DLLs the EXE imports run before its entry, each after
+  the DLLs it imports; LoadLibraryA runs the others' (`kernel32.rs`). Not recompiled:
+  LHDialogLib.dll (debug MFC; `lionhead.rs` does its two `LHEditBox` functions, which only
+  report themselves) and the system DLLs in the game folder.
+- Paths: the game sees itself installed in `C:\Black & White` (`INSTALL_DIR`); every path
+  maps into the game folder (`host_path`). Registry (`advapi32.rs`): GameDir in
+  `HKLM\Software\Lionhead Studios Ltd\Black & White` as the installer writes it (SETUP.INX);
+  the game and LHLogR keep the rest under HKCU (`registry.txt` in the game folder).
+- Guest memory: the DLLs at 0x10000000-0x10800000 (binkw32 moved there: it wants 0x30000000,
+  inside the guest heap 0x20000000-0x70000000), QMixer at 0x18000000.
+- Added for Black & White: KERNEL32 (`MORE_IMPORTS`: version, find files, folders, time,
+  memory status, ini files, file mappings as copies, ...), USER32 (`MORE_IMPORTS`: strings,
+  key names, display settings, capture, ...), `winsock.rs` (no network: sockets fail),
+  `small.rs` (IMM32, COMCTL32, SHELL32, VERSION), DSETUP's DirectXSetupGetVersion (7.0a),
+  DirectDraw caps with DDCAPS_3D (the game insists), GetObjectA of DIB sections (their bits
+  in guest memory), `xlat` in the lifter (the C runtime's maths dispatcher).
+- Discovery fix: the code addresses in the operands of what a candidate decoded are taken
+  before the next candidate (a word of data pointing into a function came first otherwise:
+  the atexit callback 0x6806d0).
+
+How far it runs (2026-11-04): all DLLs start, WinMain runs, DirectDraw/Direct3D 7 are set up
+(state blocks, textures), the first BeginScene comes, then audio starts (QMixer: OpenFile,
+waveOut are next). `IDirectDrawSurface7::QueryInterface(IID_IDirect3DTexture2)` is asked for
+every texture and refused (warnings), apparently without harm.
 
 Tools: `examples/dis.rs <folder> <addr|all>` (an address inside a function shows that
 function), `examples/linear.rs <folder> <addr> [bytes]` (straight-line disassembly),

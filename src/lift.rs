@@ -57,7 +57,8 @@ pub fn unsupported(i: &Instruction) -> Option<String> {
                 }
             }
             OpKind::Memory => {
-                if !gpr_ok(i.memory_base()) || !gpr_ok(i.memory_index()) {
+                // xlat's operand is [ebx + al] (lifted by itself)
+                if i.mnemonic() != Xlatb && (!gpr_ok(i.memory_base()) || !gpr_ok(i.memory_index())) {
                     return Some("16-bit addressing".into());
                 }
                 if !matches!(i.memory_segment(), Register::DS | Register::SS | Register::ES | Register::CS | Register::FS) {

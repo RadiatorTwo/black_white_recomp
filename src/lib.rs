@@ -14,3 +14,4 @@ pub mod lift;
 pub mod rt;
 pub mod setup;
 pub mod smc;
+pub mod platform;

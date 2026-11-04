@@ -231,13 +231,16 @@ pub fn find_functions(code: &mut Code, seeds: &[(u32, String)]) -> Vec<(u32, u32
     let mut entries: BTreeSet<u32> = names.keys().copied().collect();
     // decoded instruction starts, and bytes strictly inside a decoded instruction
     let mut seen: (HashSet<u32>, HashSet<u32>) = Default::default();
+    // returns the instructions it decoded first
     let decode = |code: &mut Code, entries: &mut BTreeSet<u32>, seen: &mut (HashSet<u32>, HashSet<u32>), mut todo: Vec<u32>| {
+        let mut new = Vec::new();
         while let Some(e) = todo.pop() {
             let s = section_of(e).unwrap();
             let f = Func::new(code, e, s.va, s.va + s.vsize.max(s.rsize), String::new());
             for &a in &f.ins {
                 if seen.0.insert(a) {
                     seen.1.extend(a + 1..a + code.at(a).unwrap().len() as u32);
+                    new.push(a);
                 }
             }
             for &t in &f.calls {
@@ -246,6 +249,7 @@ pub fn find_functions(code: &mut Code, seeds: &[(u32, String)]) -> Vec<(u32, u32
                 }
             }
         }
+        new
     };
     decode(code, &mut entries, &mut seen, names.keys().copied().collect());
     // code addresses that nothing decoded reaches: functions only called through pointers,
@@ -275,13 +279,27 @@ pub fn find_functions(code: &mut Code, seeds: &[(u32, String)]) -> Vec<(u32, u32
         }
         wanted.sort_unstable();
         for t in wanted {
-            if !seen.0.contains(&t)
-                && !seen.1.contains(&t)
-                && !matches!(img.byte(t), 0x00 | 0x90 | 0xCC)
-                && plausible(code, t, &seen)
-                && entries.insert(t)
-            {
-                decode(code, &mut entries, &mut seen, vec![t]);
+            // the code addresses in the operands of what a candidate's code decoded are taken
+            // right after it, before the next candidate: a word of data that happens to point
+            // into a function must not come first (0x6806d0, an atexit callback pushed by
+            // the code just found, and data pointing at its third instruction)
+            let mut next = vec![t];
+            while let Some(t) = next.pop() {
+                if !seen.0.contains(&t)
+                    && !seen.1.contains(&t)
+                    && !matches!(img.byte(t), 0x00 | 0x90 | 0xCC)
+                    && plausible(code, t, &seen)
+                    && entries.insert(t)
+                {
+                    tried.insert(t);
+                    let new = decode(code, &mut entries, &mut seen, vec![t]);
+                    for a in new {
+                        let i = code.at(a).unwrap();
+                        if i.op_kinds().any(|k| k == OpKind::Immediate32) && img.is_code(i.immediate32()) && tried.insert(i.immediate32()) {
+                            next.push(i.immediate32());
+                        }
+                    }
+                }
             }
         }
     }

@@ -168,6 +168,18 @@ impl Image {
         out
     }
 
+    /// Every export by its ordinal: (address, ordinal).
+    pub fn export_ordinals(&self) -> Vec<(u32, u32)> {
+        let pe = le32(&self.data, 0x3c) as usize;
+        let rva = le32(&self.data, pe + 24 + 96);
+        if rva == 0 {
+            return Vec::new();
+        }
+        let d = self.base + rva;
+        let (ord_base, nfuncs, funcs) = (self.u32(d + 16), self.u32(d + 20), self.base + self.u32(d + 28));
+        (0..nfuncs).filter(|&k| self.u32(funcs + 4 * k) != 0).map(|k| (self.base + self.u32(funcs + 4 * k), ord_base + k)).collect()
+    }
+
     /// The exported functions: (address, name); ordinal-only exports are named `#n`.
     pub fn exports(&self) -> Vec<(u32, String)> {
         let pe = le32(&self.data, 0x3c) as usize;
@@ -223,6 +235,13 @@ pub fn named(a: u32) -> String {
 pub enum ResId<'a> {
     Id(u32),
     Name(&'a str),
+}
+
+impl ResId<'_> {
+    /// From a guest argument: a number up to 0xffff, else a pointer to a string.
+    pub fn from_guest(p: u32) -> ResId<'static> {
+        if p <= 0xffff { ResId::Id(p) } else { ResId::Name(Box::leak(crate::platform::cstr(p).into_boxed_str())) }
+    }
 }
 
 /// A resource's name: a number or a string.

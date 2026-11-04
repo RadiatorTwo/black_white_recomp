@@ -16,11 +16,14 @@
   family 6); x87 environment instructions. 92 functions left with unsupported instructions,
   none reachable.
 
+- 2026-11-04: Platform layer from rustschweine with general DLL loading; the game runs up
+  to its first BeginScene and the audio start (CLAUDE.md, "Platform layer").
+
 ## Next
 
-1. Platform layer from rustschweine (`src/platform/`, `main.rs`): start the game, list the
-   imports actually called, start with kernel32/user32/ddraw.
-2. Registry keys and config the setup writes (`SETUP.INX`, `Setup.exe` of patch 1.42).
+1. Audio: QMixer's OpenFile and waveOut (or what QMixer really outputs to).
+2. Keep running the game: the next missing imports, then the first picture.
+3. Settings the patch 1.42 Setup.exe writes (resolution, windowed mode).
 
 ## Later
 

@@ -1,6 +1,6 @@
 //! The game's programs: runblack.exe (patch 1.42, without SafeDisc) and Lionhead's DLLs it
 //! imports or loads, recompiled together. Most of the DLLs want 0x10000000: each gets its own
-//! megabyte from there (moved by its relocations); QMixer and binkw32 keep their bases.
+//! megabyte from there (moved by its relocations), binkw32 too; QMixer keeps its base.
 
 use crate::discover::Code;
 use crate::image::Image;
@@ -8,17 +8,18 @@ use std::path::Path;
 
 pub const EXE: &str = "runblack.exe";
 
-/// The DLLs, each with the base it is loaded at.
-pub const DLLS: [(&str, u32); 9] = [
+/// The DLLs, each with the base it is loaded at. Not here: LHDialogLib.dll (needs the debug
+/// MFC; `platform::lionhead` does its two functions) and the system DLLs in the game folder.
+pub const DLLS: [(&str, u32); 8] = [
     ("LHLogR.dll", 0x1000_0000),
     ("LHaudiodllR.dll", 0x1010_0000),
     ("LHMultiplayerR.dll", 0x1020_0000),
-    ("LHDialogLib.dll", 0x1030_0000),
     ("IFC22.dll", 0x1040_0000),
     ("wearasr.dll", 0x1050_0000),
     ("Plug Ins/ScriptLibraryR.dll", 0x1060_0000),
     ("QMixer.dll", 0x1800_0000),
-    ("binkw32.dll", 0x3000_0000),
+    // wants 0x30000000, inside the guest heap (0x20000000-0x70000000)
+    ("binkw32.dll", 0x1070_0000),
 ];
 
 pub struct Game {
