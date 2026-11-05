@@ -139,9 +139,14 @@ no own settings). Env variables are `BW_*` (`BW_TRACE_API=1`, `BW_TRACE_REG=1`, 
   before the next candidate (a word of data pointing into a function came first otherwise:
   the atexit callback 0x6806d0).
 
-How far it runs (2026-11-05): the start-up videos play (Bink), the game loads and shows the
-name login ("Bitte gib deinen Namen ..."). The
-start-up videos are skipped unless `BW_INTRO=1` (`kernel32::skipped_video`); waveOut/waveIn
+How far it runs (2026-11-05): the start-up videos play (Bink), the game loads in ~5 s and
+shows the name login ("Bitte gib deinen Namen ..."), which takes mouse and keyboard. Input:
+window messages, GetAsyncKeyState and GetCursorPos (client area = screen); DirectInput's
+device is created but never read. The main window (`user32` `main`, input target) is the
+first top-level window without WS_DISABLED: QMixer creates a hidden, disabled one first. The
+start-up videos are skipped unless `BW_INTRO=1` (`kernel32::skipped_video`): CreateFileA and
+GetFileAttributesA both report them missing (with only CreateFileA failing, the game's
+`_access` test passes, BinkOpen fails and 0x642850 waits 25 s); waveOut/waveIn
 report no device (silent). `BW_TRACE_FILES=1` logs every file opened. `BW_COUNT=<file>` showed
 which game functions ran (useful to check a parser's callbacks). `IDirectDrawSurface7::QueryInterface(IID_IDirect3DTexture2)` is asked for
 every texture and refused (warnings), apparently without harm.

@@ -16,15 +16,19 @@
   family 6); x87 environment instructions. 92 functions left with unsupported instructions,
   none reachable.
 
+- 2026-11-05: Mouse and keyboard reach the game (name login: typing, symbol picker); the
+  name login shows after ~5 s instead of 48 s (skipped intro videos are missing for
+  GetFileAttributesA too).
 - 2026-11-05: Patch 1.20 applied without its installer (`setup::patch_120`, `mscab.rs`,
   `rtpatch.rs`); the game reaches the name login.
 - 2026-11-04: Platform layer from rustschweine with general DLL loading; the game runs up
   to its first BeginScene and the audio start (CLAUDE.md, "Platform layer").
 
-## Current state (2026-11-05): runs to the name login
+## Current state (2026-11-05): name login takes input
 
 `examples/install` makes the whole game folder: disc -> patch 1.20 (`setup::patch_120`, its
-own patchw32.dll recompiled) -> patch 1.42. The game loads and shows the name login. The
+own patchw32.dll recompiled) -> patch 1.42. The game loads in ~5 s (code cache) and shows the name login, which takes
+mouse and keyboard. The
 registry values changed for the failed 1.20-installer attempt are restored (HKCU GameVersion
 142, GameDir removed); an HKLM GameDir key the user added as admin may remain.
 

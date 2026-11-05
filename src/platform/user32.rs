@@ -27,6 +27,7 @@ pub const WM_QUIT: u32 = 0x12;
 pub const WM_ACTIVATEAPP: u32 = 0x1c;
 pub const WM_KEYDOWN: u32 = 0x100;
 pub const WM_KEYUP: u32 = 0x101;
+const WS_DISABLED: u32 = 0x0800_0000;
 pub const WM_CHAR: u32 = 0x102;
 pub const WM_SYSKEYDOWN: u32 = 0x104;
 pub const WM_SYSKEYUP: u32 = 0x105;
@@ -420,7 +421,9 @@ fn create_window_ex(c: &mut Cpu) -> u32 {
             hwnd,
             Win { proc_, style: a[3], exstyle: a[0], rect: [x, y, x + w, y + h], title: title.clone(), user: 0, id: a[9], shown: false, dirty: false },
         );
-        let first = s.main == 0 && a[8] == 0;
+        // the first top-level window that can take input: QMixer's hidden, disabled one
+        // (WS_DISABLED) comes before the game's
+        let first = s.main == 0 && a[8] == 0 && a[3] & WS_DISABLED == 0;
         if first {
             s.main = hwnd;
             s.focus = hwnd;
@@ -428,7 +431,7 @@ fn create_window_ex(c: &mut Cpu) -> u32 {
         (hwnd, first)
     };
     if first {
-        window::open(if title.is_empty() { "Frontschweine" } else { &title });
+        window::open(if title.is_empty() { "Black & White" } else { &title });
     }
     // CREATESTRUCT
     let cs = super::alloc(48);
@@ -685,10 +688,12 @@ fn client_to_screen(_: &mut Cpu) -> u32 {
     1
 }
 
+/// GetCursorPos: the mouse in the main window's client area (frame pixels); the client area
+/// starts at the desktop's origin (`client_to_screen`).
 fn get_cursor_pos(c: &mut Cpu) -> u32 {
-    // only binkw32.dll asks (its own window, not used)
-    mem().wr32(arg(c, 0), 0);
-    mem().wr32(arg(c, 0) + 4, 0);
+    let (x, y) = st().mouse;
+    mem().wr32(arg(c, 0), x as u32);
+    mem().wr32(arg(c, 0) + 4, y as u32);
     1
 }
 

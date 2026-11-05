@@ -1198,9 +1198,11 @@ fn attributes(md: &std::fs::Metadata) -> u32 {
 
 fn get_file_attributes(c: &mut Cpu) -> u32 {
     let name = cstr(arg(c, 0));
-    match std::fs::metadata(host_path(&name)) {
-        Ok(md) => attributes(&md),
-        Err(_) => {
+    // a skipped video is missing here too: the game tests it first (`_access`) and, when it
+    // is there but cannot be opened, waits 25 s for its end (0x642850)
+    match std::fs::metadata(host_path(&name)).ok().filter(|_| !skipped_video(&name)) {
+        Some(md) => attributes(&md),
+        None => {
             set_last_error(ERROR_FILE_NOT_FOUND);
             INVALID_HANDLE
         }
